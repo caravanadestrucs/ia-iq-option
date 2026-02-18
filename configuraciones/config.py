@@ -67,3 +67,14 @@ ATR_VOL_THRESHOLD = 0.002       # ATR% sobre precio para considerar 'volatility'
 # P.ej. 0.0 -> cualquier peso positivo activa el veto; 0.1 exige peso moderado.
 TREND_VETO_MIN_WEIGHT = 0.0
 
+# --------------------------------------------------
+# Win‑confidence / exports
+# - USE_WIN_CONFIDENCE_AS_DECISION: si True, la decision de abrir/size la toma el "win confidence" (TradeFilter)
+# - WIN_CONFIDENCE_MODEL_PATH: ruta al modelo serializado del TradeFilter
+# - DOWNLOADS_DIR: directorio donde se guardan los .zip exportados
+# --------------------------------------------------
+USE_WIN_CONFIDENCE_AS_DECISION = True
+WIN_CONFIDENCE_MODEL_PATH = os.environ.get('WIN_CONFIDENCE_MODEL_PATH', 'ia/models/trade_filter.pkl')
+DOWNLOADS_DIR = os.environ.get('DOWNLOADS_DIR', 'downloads')
+
+
