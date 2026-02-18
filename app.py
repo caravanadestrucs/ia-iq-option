@@ -50,6 +50,7 @@ from configuraciones.config import *
 # gestor de pesos (IA ligera)
 from ia.weight_manager import WeightManager
 from ia.trade_logger import TradeLogger
+from ia.trade_filter import TradeFilter
 from ia.regime_detector import detect_regime
 
 # (la conexión con IQ_Option se hace más abajo en la sección 'CONEXIÓN' usando EMAIL/PASSWORD del config)
@@ -142,6 +143,9 @@ weight_manager = WeightManager(wm_predictors, lr=WEIGHT_LR)
 
 # inicializar logger SQLite
 trade_logger = TradeLogger(LOG_DB_PATH)
+
+# TradeFilter (meta‑validador de operaciones — modelo + fallback por reglas)
+trade_filter = TradeFilter(model_path="ia/models/trade_filter.pkl", threshold=0.62)
 
 # =============================
 # FUNCIONES
@@ -646,7 +650,8 @@ while True:
                 continue
 
             # decidir monto: usar MONTO como base y aplicar reducción por régimen (ej. volatile -> 70% de MONTO)
-            # la confianza del WeightManager determina si apostamos full o half; se IGNORA winrate para sizing
+            # ahora permitimos que `TradeFilter` valide la operación (sustituye a WM si aprueba);
+            # si TradeFilter rechaza, se usa la lógica previa (fallback a WM).
             monto = None
             confirmed = False
 
@@ -658,29 +663,62 @@ while True:
             # stake base ajustado por régimen (compute_bet_size ya devuelve MONTO o MONTO*0.7)
             adjusted_stake = bet_size
 
-            # reglas de confianza:
-            # - wm_conf >= WM_CONFIDENCE_THRESHOLD  -> apostar full (adjusted_stake)
-            # - WM_HALF_CONFIDENCE_THRESHOLD <= wm_conf < WM_CONFIDENCE_THRESHOLD -> apostar half (adjusted_stake/2)
-            # - wm_conf < WM_HALF_CONFIDENCE_THRESHOLD -> no operar
+            # construir features para el TradeFilter (usado como validador principal)
+            volatility = float(np.nanstd(np.diff(cierres) / (cierres[:-1] + 1e-9)))
+            price_change_1m = float((cierres[-1] - cierres[-2]) / (cierres[-2] + 1e-9))
+            model_votes_call = votos_call
+            model_votes_put = votos_put
+            ind_votes_call = ind_counts.get('call', 0)
+            ind_votes_put = ind_counts.get('put', 0)
+            decision_features = {
+                "asset": ASSET,
+                "direction": direction,
+                "model_votes_call": model_votes_call,
+                "model_votes_put": model_votes_put,
+                "indicator_votes_call": ind_votes_call,
+                "indicator_votes_put": ind_votes_put,
+                "model_votes_total": model_votes_call + model_votes_put,
+                "model_votes_in_favor": modelos_a_favor,
+                "indicator_votes_in_favor": indicadores_a_favor,
+                "regime": regime,
+                "volatility": volatility,
+                "price_change_1m": price_change_1m,
+                "asset_winrate": asset_winrate or 0.0,
+                "bet_size": adjusted_stake,
+                "wm_confidence": wm_conf,
+                "minutes_to_expiry": EXPIRATION
+            }
 
-            if modelos_a_favor >= 3:
-                if indicadores_a_favor >= (INDICATOR_CONFIRMATIONS + 1) and wm_pred == direction and wm_conf >= WM_HALF_CONFIDENCE_THRESHOLD:
-                    if wm_conf >= WM_CONFIDENCE_THRESHOLD:
-                        monto = adjusted_stake
-                    else:
-                        monto = max(MIN_BET, round(adjusted_stake / 2.0, 2))
+            # Primero permitir que TradeFilter valide (permitir que sustituya a WM).
+            tf_res = trade_filter.predict(decision_features)
+            if tf_res.get("approve"):
+                # aprobación por TradeFilter: stake según probabilidad del filtro
+                prob = tf_res.get("prob", 0.0)
+                if modelos_a_favor >= 3:
+                    monto = adjusted_stake if prob >= 0.75 else max(MIN_BET, round(adjusted_stake / 2.0, 2))
                     confirmed = True
-                else:
-                    print(f"{ASSET} -> 3 modelos a favor pero indicadores={indicadores_a_favor} o WM no tiene confianza suficiente (wm={wm_conf:.2f}) → salto")
-            elif modelos_a_favor == 2:
-                # con 2 modelos permitimos solo apuesta reducida (half) si WM tiene confianza moderada
-                if indicadores_a_favor >= (INDICATOR_CONFIRMATIONS) and wm_pred == direction and wm_conf >= WM_HALF_CONFIDENCE_THRESHOLD:
+                elif modelos_a_favor == 2:
                     monto = max(MIN_BET, round(adjusted_stake / 2.0, 2))
                     confirmed = True
-                else:
-                    print(f"{ASSET} -> 2 modelos a favor pero condiciones no satisfechas (wm={wm_conf:.2f}) → salto")
             else:
-                print(f"{ASSET} -> Menos de 2 votos de modelos ({votos_call} call / {votos_put} put) → salto")
+                # si TradeFilter rechaza, intentar fallback a la lógica previa basada en WM
+                if modelos_a_favor >= 3:
+                    if indicadores_a_favor >= (INDICATOR_CONFIRMATIONS + 1) and wm_pred == direction and wm_conf >= WM_HALF_CONFIDENCE_THRESHOLD:
+                        if wm_conf >= WM_CONFIDENCE_THRESHOLD:
+                            monto = adjusted_stake
+                        else:
+                            monto = max(MIN_BET, round(adjusted_stake / 2.0, 2))
+                        confirmed = True
+                    else:
+                        print(f"{ASSET} -> 3 modelos a favor pero indicadores={indicadores_a_favor} o WM no tiene confianza suficiente (wm={wm_conf:.2f}) → salto")
+                elif modelos_a_favor == 2:
+                    if indicadores_a_favor >= (INDICATOR_CONFIRMATIONS) and wm_pred == direction and wm_conf >= WM_HALF_CONFIDENCE_THRESHOLD:
+                        monto = max(MIN_BET, round(adjusted_stake / 2.0, 2))
+                        confirmed = True
+                    else:
+                        print(f"{ASSET} -> 2 modelos a favor pero condiciones no satisfechas (wm={wm_conf:.2f}) → salto")
+                else:
+                    print(f"{ASSET} -> Menos de 2 votos de modelos ({votos_call} call / {votos_put} put) → salto")
 
             if not confirmed:
                 time.sleep(1)
@@ -792,6 +830,19 @@ while True:
                                          profit=profit,
                                          exit_balance=exit_balance,
                                          exit_time=datetime.datetime.utcnow().isoformat())
+
+                # registrar features + resultado para entrenamiento del TradeFilter (non‑blocking)
+                try:
+                    decision_features_for_logging = dict(decision_features) if 'decision_features' in locals() else {}
+                    decision_features_for_logging.update({
+                        'result': result_label,
+                        'profit': profit if profit is not None else None,
+                        'entry_balance': entry_balance,
+                        'exit_balance': exit_balance
+                    })
+                    trade_filter.append_example(decision_features_for_logging, result_label)
+                except Exception as _e:
+                    logging.error('Error registrando features para TradeFilter: %s', _e)
 
                 print(f"{ASSET} -> Resultado: {result_label} profit={profit}")
 
