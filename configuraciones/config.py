@@ -77,7 +77,8 @@ TREND_VETO_MIN_WEIGHT = 0.9  # aumentado para reducir vetos de trend y abrir un 
 # - WIN_CONFIDENCE_MODEL_PATH: ruta al modelo serializado del TradeFilter
 # - DOWNLOADS_DIR: directorio donde se guardan los .zip exportados
 # --------------------------------------------------
-USE_WIN_CONFIDENCE_AS_DECISION = True
+# Volvemos al sistema ponderado clásico: desactivar Win‑confidence como criterio principal
+USE_WIN_CONFIDENCE_AS_DECISION = False
 WIN_CONFIDENCE_MODEL_PATH = os.environ.get('WIN_CONFIDENCE_MODEL_PATH', 'ia/models/trade_filter.pkl')
 DOWNLOADS_DIR = os.environ.get('DOWNLOADS_DIR', 'downloads')
 
