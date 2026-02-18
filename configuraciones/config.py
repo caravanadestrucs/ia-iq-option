@@ -69,7 +69,7 @@ ATR_VOL_THRESHOLD = 0.002       # ATR% sobre precio para considerar 'volatility'
 
 # Trend veto minimum weight (aplica veto solo si WeightManager asigna al 'trend' >= este valor)
 # P.ej. 0.0 -> cualquier peso positivo activa el veto; 0.1 exige peso moderado.
-TREND_VETO_MIN_WEIGHT = 0.0
+TREND_VETO_MIN_WEIGHT = 0.9  # aumentado para reducir vetos de trend y abrir un poco más de operaciones
 
 # --------------------------------------------------
 # Win‑confidence / exports
