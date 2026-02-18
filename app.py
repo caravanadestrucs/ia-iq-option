@@ -604,29 +604,8 @@ while True:
 
             print(f"{ASSET} -> Señal: {señal} | modelos: call={votos_call} put={votos_put} | indicadores: {ind_votes} | wm={wm_conf:.2f} | regime={regime} | winrate={asset_winrate} | bet={bet_size}")
 
-            # Trend veto: solo aplicar si el predictor 'trend' tiene peso suficiente en el WM
-            trend_vote = ind_votes.get('trend') if isinstance(ind_votes, dict) else None
-            # obtener peso efectivo del predictor 'trend' (mezcla global/regime si existe)
-            try:
-                tw_global = float(weight_manager.weights.get('trend', 0.0))
-            except Exception:
-                tw_global = 0.0
-            try:
-                tw_reg = None
-                if regime and (regime in getattr(weight_manager, 'regime_weights', {})):
-                    tw_reg = float(weight_manager.regime_weights.get(regime, {}).get('trend', 0.0))
-            except Exception:
-                tw_reg = None
-            if tw_reg is not None:
-                tw_eff = (1.0 - getattr(weight_manager, 'regime_alpha', 0.6)) * tw_global + getattr(weight_manager, 'regime_alpha', 0.6) * tw_reg
-            else:
-                tw_eff = tw_global
-
-            # aplicar veto solo si el trend vota en contra y su peso >= umbral
-            if trend_vote and señal and trend_vote != señal and tw_eff >= TREND_VETO_MIN_WEIGHT:
-                print(f"{ASSET} -> TREND VETO (weight={tw_eff:.2f} >= {TREND_VETO_MIN_WEIGHT}): trend={trend_vote} contradicts signal={señal} -> skip")
-                time.sleep(1)
-                continue
+            # Trend veto removed — el indicador 'trend' ya no bloquea operaciones.
+            # (Antes: si 'trend' contradecía la señal y su peso excedía TREND_VETO_MIN_WEIGHT, se saltaba el trade.)
 
             # Resolver conflictos: si modelos e indicadores discrepan, dejar que WeightManager decida
             indicator_direction = None
@@ -637,11 +616,8 @@ while True:
 
             # Si hay conflicto y WM tiene suficiente confianza, usar wm_pred como señal
             if indicator_direction and señal and indicator_direction != señal:
-                # impedir que WM revierta el veto del trend (si existe) — solo si trend tiene peso suficiente
-                if trend_vote and wm_pred != trend_vote and tw_eff >= TREND_VETO_MIN_WEIGHT:
-                    print(f"{ASSET} -> WM propuesta ({wm_pred}) contradice trend ({trend_vote}) y trend_weight={tw_eff:.2f} >= {TREND_VETO_MIN_WEIGHT} -> skip")
-                    time.sleep(1)
-                    continue
+                # Trend veto on WM proposals removed — WM can resolve conflicts even if it disagrees with 'trend'.
+                # (Antes: la propuesta del WM se saltaba si contradicía 'trend' y el peso de 'trend' era suficiente.)
 
                 if wm_conf >= WM_HALF_CONFIDENCE_THRESHOLD:
                     print(f"{ASSET} -> CONFLICT: models={señal} indicators={indicator_direction} -> WM resolves={wm_pred} (conf={wm_conf:.2f})")
