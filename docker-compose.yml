@@ -6,14 +6,6 @@ services:
     container_name: iq_web
     ports:
       - "5001:5001"
-    # aumentar límites de archivos e inotify (evita "Too many open files")
-    sysctls:
-      fs.inotify.max_user_watches: 524288
-      fs.file-max: 100000
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
     environment:
       - EMAIL=${EMAIL}
       - PASSWORD=${PASSWORD}
@@ -32,14 +24,6 @@ services:
     container_name: iq_bot
     depends_on:
       - web
-    # aumentar límites de archivos e inotify (evita "Too many open files")
-    sysctls:
-      fs.inotify.max_user_watches: 524288
-      fs.file-max: 100000
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
     environment:
       - EMAIL=${EMAIL}
       - PASSWORD=${PASSWORD}
