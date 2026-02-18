@@ -49,6 +49,10 @@ WINRATE_LOOKBACK = 100          # número de trades para calcular winrate por-as
 VOLATILITY_SIZE_REDUCTION = 0.30  # reducir tamaño en 30% si régimen='volatile'
 MIN_BET = 1.0                   # apuesta mínima permitida
 
+# Máxima volatilidad histórica aceptable para abrir operaciones (std de retornos).
+# Si la volatilidad calculada > este valor, el TradeFilter/las reglas pueden rechazar la operación.
+MAX_VOLATILITY_FOR_TRADING = float(os.environ.get('MAX_VOLATILITY_FOR_TRADING', 0.01))
+
 # Sizing relativo a MONTO (porcentajes)
 # Escenario A (winrate >= 65%) -> mantener 2 => 2/20 = 10%  => RISK_PCT_HIGH = 0.10
 # Escenario B (winrate 58-60%) -> 1.5 => 7.5% => RISK_PCT_MED = 0.075
