@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="row g-2" method="get">
+      <div class="col-auto">
+        <select name="asset" class="form-select">
+          <option value="">Todos los activos</option>
+          {% for a in assets %}
+            <option value="{{a}}" {% if filters.asset==a %}selected{% endif %}>{{a}}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <select name="status" class="form-select">
+          <option value="">Cualquiera</option>
+          <option value="open" {% if filters.status=='open' %}selected{% endif %}>Open</option>
+          <option value="closed" {% if filters.status=='closed' %}selected{% endif %}>Closed</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <select name="result" class="form-select">
+          <option value="">Resultado</option>
+          <option value="win" {% if filters.result=='win' %}selected{% endif %}>Win</option>
+          <option value="loss" {% if filters.result=='loss' %}selected{% endif %}>Loss</option>
+        </select>
+      </div>
+      <div class="col-auto"><input type="date" name="from" class="form-control" value="{{filters.from or ''}}"></div>
+      <div class="col-auto"><input type="date" name="to" class="form-control" value="{{filters.to or ''}}"></div>
+      <div class="col-auto"><input type="number" name="limit" class="form-control" value="{{filters.limit or 200}}"></div>
+      <div class="col-auto">
+        <button class="btn btn-primary">Filtrar</button>
+        <a href="{{ url_for('export_csv', **filters) }}" class="btn btn-outline-secondary">Exportar CSV</a>
+        <form action="{{ url_for('delete_unknowns') }}" method="post" style="display:inline;" onsubmit="return confirm('Eliminar todos los trades con resultado unknown? Esta acción no se puede deshacer.');">
+          <button class="btn btn-danger btn-sm ms-2" type="submit" {% if not unknown_exists %}disabled{% endif %}>Eliminar unknowns</button>
+        </form>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <strong>Estadísticas:</strong>
+    Total: {{stats.total or 0}} — Wins: {{stats.wins or 0}} — Losses: {{stats.losses or 0}} — Open: {{stats.open or 0}} — PnL: {{stats.pnl or 0}} — Winrate: {{'%.2f'% (stats.winrate*100) if stats.winrate else 'N/A'}}%
+  </div>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th>id</th><th>asset</th><th>amt</th><th>dir</th><th>entry</th><th>exit</th><th>result</th><th>profit</th><th>wm_conf</th><th>resolved_by</th><th>models/indicators</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in trades %}
+      <tr>
+        <td>{{ t.id }}</td>
+        <td>{{ t.asset }}</td>
+        <td>{{ t.amount }}</td>
+        <td>{{ t.direction }}</td>
+        <td>{{ t.entry_time }}</td>
+        <td>{{ t.exit_time or '-' }}</td>
+        <td>{{ t.result or t.status }}</td>
+        <td>{{ t.profit or 0 }}</td>
+        <td>{{ '%.2f'|format(t.wm_confidence or 0) }}</td>
+        <td>{{ t.resolved_by or '-' }}</td>
+        <td><small>models: {{ t.model_votes }}<br>ind: {{ t.indicator_votes }}</small></td>
+        <td>
+          <form action="{{ url_for('delete_trade') }}" method="post" style="display:inline;" onsubmit="return confirm('Eliminar registro {{ t.id }}?');">
+            <input type="hidden" name="trade_id" value="{{ t.id }}">
+            <button class="btn btn-sm btn-outline-danger">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

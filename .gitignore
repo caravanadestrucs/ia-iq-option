@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+
+__pycache__/
+*.pyc
+.env
+
+# Virtual environments
+venv/
+.env
+.env.*
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# pytest
+.pytest_cache/
+
+# wheel
+*.whl
+
+# local config
+configuraciones/*.pyc

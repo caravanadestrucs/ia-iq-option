@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    container_name: iq_web
+    ports:
+      - "5001:5001"
+    environment:
+      - EMAIL=${EMAIL}
+      - PASSWORD=${PASSWORD}
+      - MONTO=${MONTO:-20}
+      - LOG_DB_PATH=/app/ia/trades.db
+      - HOST=0.0.0.0
+      - PORT=5001
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app:cached
+      - ./ia:/app/ia
+    restart: unless-stopped
+
+  bot:
+    build: .
+    container_name: iq_bot
+    depends_on:
+      - web
+    environment:
+      - EMAIL=${EMAIL}
+      - PASSWORD=${PASSWORD}
+      - MONTO=${MONTO:-20}
+      - LOG_DB_PATH=/app/ia/trades.db
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app:cached
+      - ./ia:/app/ia
+    command: ["python", "app.py"]
+    restart: unless-stopped
+
+volumes:
+  trades_data:
+    driver: local

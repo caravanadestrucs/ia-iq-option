@@ -1,0 +1,79 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body">
+    <h5>Resumen general</h5>
+    <div class="row">
+      <div class="col-md-2"><strong>Total:</strong> {{ overall.total or 0 }}</div>
+      <div class="col-md-2"><strong>Wins:</strong> {{ overall.wins or 0 }}</div>
+      <div class="col-md-2"><strong>Losses:</strong> {{ overall.losses or 0 }}</div>
+      <div class="col-md-2"><strong>Open:</strong> {{ overall.open or 0 }}</div>
+      <div class="col-md-2"><strong>PnL:</strong> {{ overall.pnl or 0 }}</div>
+      <div class="col-md-2"><strong>Winrate:</strong> {% if overall.winrate is not none %}{{ (overall.winrate * 100) | round(2) }}%{% else %}N/A{% endif %}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5>Estadísticas por divisa</h5>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped">
+        <thead>
+          <tr>
+            <th>Asset</th>
+            <th>Trades</th>
+            <th>Wins</th>
+            <th>Losses</th>
+            <th>Open</th>
+            <th>Winrate (last {{ WINRATE_LOOKBACK }})</th>
+            <th>Suggested bet ($)</th>
+            <th>Regime</th>
+            <th>PnL</th>
+            <th>Avg profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in by_asset %}
+          {% set info = (assets_info | selectattr('asset','equalto', a.asset) | list | first) %}
+          <tr>
+            <td>{{ a.asset }}</td>
+            <td>{{ a.trades }}</td>
+            <td>{{ a.wins }}</td>
+            <td>{{ a.losses }}</td>
+            <td>{{ a.open_trades }}</td>
+            <td>{% if info and info.winrate is not none %}{{ (info.winrate * 100) | round(2) }}%{% else %}N/A{% endif %}</td>
+            <td>{% if info %}{{ '%.2f'|format(info.suggested_bet) }}{% else %}-{% endif %}</td>
+            <td id="regime-{{ a.asset }}">{% if info %}{{ info.regime }}{% else %}-{% endif %} <button class="btn btn-sm btn-outline-primary ms-2" onclick="detectRegime('{{ a.asset }}', this)">Detect</button></td>
+            <td>{{ '%.2f'|format(a.pnl) }}</td>
+            <td>{{ '%.2f'|format(a.avg_profit) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10">No hay datos</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<script>
+async function detectRegime(asset, btn) {
+  btn.disabled = true;
+  const cell = document.getElementById('regime-' + asset);
+  const orig = cell.innerText;
+  cell.innerText = 'detecting...';
+  try {
+    const res = await fetch('/regime?asset=' + encodeURIComponent(asset));
+    if (!res.ok) throw new Error('no data');
+    const j = await res.json();
+    cell.innerText = j.regime + ' (adx:' + (j.adx||'') + ', atr:' + (j.atr_pct||'') + ')';
+  } catch (err) {
+    cell.innerText = 'n/a';
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

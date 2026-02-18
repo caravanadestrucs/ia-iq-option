@@ -1,0 +1,14 @@
+git+https://github.com/iqoptionapi/iqoptionapi.git
+numpy
+pandas
+scikit-learn
+xgboost
+tensorflow
+joblib
+stable-baselines3
+gym
+torch
+flask
+requests
+beautifulsoup4
+lxml            
