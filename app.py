@@ -334,6 +334,61 @@ def seleccionar_mejores_mercados(candidates, top_n=3, lookback=VOLATILITY_LOOKBA
     logging.info("Mercados evaluados (vol): %s", scores)
     return selected
 
+
+# -------------------
+# Safety helpers: time windows, volatility and news checks
+# -------------------
+
+def is_now_in_no_trade_window(now_dt: datetime.datetime) -> bool:
+    """Devuelve True si el `now_dt` cae dentro de alguna ventana configurada en NO_TRADE_WINDOWS.
+    Las ventanas están en hora local y pueden cruzar medianoche.
+    """
+    from configuraciones.config import NO_TRADE_WINDOWS
+    if not NO_TRADE_WINDOWS:
+        return False
+    t = now_dt.time()
+    for w in NO_TRADE_WINDOWS:
+        try:
+            start_s, end_s = w
+            sh, sm = map(int, start_s.split(':'))
+            eh, em = map(int, end_s.split(':'))
+            start = datetime.time(sh, sm)
+            end = datetime.time(eh, em)
+        except Exception:
+            continue
+        if start <= end:
+            if start <= t <= end:
+                return True
+        else:
+            # ventana que cruza medianoche
+            if t >= start or t <= end:
+                return True
+    return False
+
+
+def is_asset_too_volatile(cierres: np.ndarray, regime_info: dict = None) -> bool:
+    """Comprueba volatilidad por std de retornos y por régimen detectado.
+    Retorna True si debe evitarse operar sobre ese asset en este momento.
+    """
+    from configuraciones.config import MAX_VOLATILITY_FOR_TRADING, SKIP_IF_REGIME_VOLATILE
+    try:
+        vol = float(np.nanstd(np.diff(cierres) / (cierres[:-1] + 1e-9)))
+    except Exception:
+        vol = 0.0
+    if SKIP_IF_REGIME_VOLATILE and regime_info and regime_info.get('regime') == 'volatile':
+        return True
+    if vol and vol > MAX_VOLATILITY_FOR_TRADING:
+        return True
+    return False
+
+
+def check_high_impact_news(asset: str, minutes: int = 15) -> bool:
+    """Placeholder para filtrado de noticias. Devuelve False por defecto.
+    Si se habilita NEWS_API_ENABLED debes implementar una consulta a un proveedor de calendario económico.
+    """
+    # No hay implementación por defecto — retornar False (no bloquear)
+    return False
+
 from ia.money_manager import compute_bet_size, REGIME_WEIGHT_MULTIPLIERS
 
 # =============================
@@ -550,6 +605,12 @@ while True:
 
         activos = mercados_abiertos(ASSETS, INCLUDE_OTC, ASSETS_OTC)
 
+        # Comprobación global por ventanas horarias configuradas (NO_TRADE_WINDOWS)
+        if is_now_in_no_trade_window(now):
+            print(f"Horario bloqueado por NO_TRADE_WINDOWS -> esperando 60s (now={now.time()})")
+            time.sleep(60)
+            continue
+
         if not activos:
             print("No hay mercados abiertos. Esperando...")
             time.sleep(30)
@@ -581,6 +642,20 @@ while True:
             # detectar régimen y ajustar tamaño/pesos
             regime_info = detect_regime(velas)
             regime = regime_info.get('regime')
+
+            # Filtrado por volatilidad / régimen / noticias antes de seguir con predicción
+            if is_asset_too_volatile(cierres, regime_info=regime_info):
+                print(f"{ASSET} -> Saltado por alta volatilidad o régimen '{regime}'")
+                time.sleep(1)
+                continue
+
+            # placeholder para evitar operar alrededor de noticias de alto impacto
+            from configuraciones.config import NEWS_API_ENABLED, AVOID_NEWS_WINDOW_MINUTES
+            if NEWS_API_ENABLED and check_high_impact_news(ASSET, minutes=AVOID_NEWS_WINDOW_MINUTES):
+                print(f"{ASSET} -> Saltado por evento de noticias cercanas (no-trade)")
+                time.sleep(1)
+                continue
+
             asset_winrate = trade_logger.get_winrate(asset=ASSET, lookback=WINRATE_LOOKBACK, include_draws=True)
             bet_size = compute_bet_size(asset_winrate, regime=regime)
 

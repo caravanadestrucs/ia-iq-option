@@ -67,3 +67,20 @@ ATR_VOL_THRESHOLD = 0.002       # ATR% sobre precio para considerar 'volatility'
 # P.ej. 0.0 -> cualquier peso positivo activa el veto; 0.1 exige peso moderado.
 TREND_VETO_MIN_WEIGHT = 0.0
 
+# --------------------------------------------------
+# Time-of-day & volatility safety nets
+# - NO_TRADE_WINDOWS: lista de tuplas "HH:MM" (hora local) en las que el bot NO debe operar.
+#   Ejemplo: [("22:00","02:30"), ("12:00","12:30")] — soporta ventanas que crucen medianoche.
+# - MAX_VOLATILITY_FOR_TRADING: si la volatilidad histórica (std de retornos) > este umbral -> evitar operar.
+# - SKIP_IF_REGIME_VOLATILE: si el detector de régimen marca 'volatile', evitar operar.
+# - NEWS_API_ENABLED / AVOID_NEWS_WINDOW_MINUTES: placeholders para integrar filtrado por noticias (opcional).
+# --------------------------------------------------
+NO_TRADE_WINDOWS = []  # formato: [("HH:MM","HH:MM"), ...] — vacío = sin restricciones
+MAX_VOLATILITY_FOR_TRADING = float(os.environ.get('MAX_VOLATILITY_FOR_TRADING', 0.01))
+SKIP_IF_REGIME_VOLATILE = bool(int(os.environ.get('SKIP_IF_REGIME_VOLATILE', '1')))
+
+# News filter (desactivado por defecto). Si activas, se debe implementar `check_high_impact_news`.
+NEWS_API_ENABLED = False
+AVOID_NEWS_WINDOW_MINUTES = int(os.environ.get('AVOID_NEWS_WINDOW_MINUTES', 15))
+
+
