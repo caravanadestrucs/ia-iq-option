@@ -38,9 +38,9 @@ LOG_DB_PATH = os.environ.get('LOG_DB_PATH', "ia/trades.db")
 # Gestor de pesos (IA ligera)
 WEIGHT_LR = 0.05
 WEIGHT_FILE = "ia/weights.json"
-WM_CONFIDENCE_THRESHOLD = float(os.environ.get('WM_CONFIDENCE_THRESHOLD', 0.80))
+WM_CONFIDENCE_THRESHOLD = float(os.environ.get('WM_CONFIDENCE_THRESHOLD', 0.90))
 # Umbral para apostar mitad cuando la confianza es moderada
-WM_HALF_CONFIDENCE_THRESHOLD = float(os.environ.get('WM_HALF_CONFIDENCE_THRESHOLD', 0.50))
+WM_HALF_CONFIDENCE_THRESHOLD = float(os.environ.get('WM_HALF_CONFIDENCE_THRESHOLD', 0.75))
 
 # Money management & regime detection (user-configurable)
 # El tamaño base se toma directamente desde `MONTO` (configurado por el usuario).
