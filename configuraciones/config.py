@@ -82,4 +82,10 @@ USE_WIN_CONFIDENCE_AS_DECISION = False
 WIN_CONFIDENCE_MODEL_PATH = os.environ.get('WIN_CONFIDENCE_MODEL_PATH', 'ia/models/trade_filter.pkl')
 DOWNLOADS_DIR = os.environ.get('DOWNLOADS_DIR', 'downloads')
 
+# Umbrales para que los modelos emitan voto (reduce votos "forzados" que causan sesgo)
+# - MODEL_VOTE_CONFIDENCE_THRESHOLD: probabilidad mínima que exige RF/XGB para votar firmemente
+# - LSTM_VOTE_MIN_REL_DELTA: cambio relativo mínimo entre pred_price y último precio para votar LSTM
+MODEL_VOTE_CONFIDENCE_THRESHOLD = float(os.environ.get('MODEL_VOTE_CONFIDENCE_THRESHOLD', 0.60))
+LSTM_VOTE_MIN_REL_DELTA = float(os.environ.get('LSTM_VOTE_MIN_REL_DELTA', 0.00025))
+
 

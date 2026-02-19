@@ -210,8 +210,15 @@ def predecir(cierres):
     retorno = (cierres[-1] - cierres[-2]) / cierres[-2]
     X_input = np.array([[retorno]])
 
-    pred_rf = rf_model.predict(X_input)[0]
-    pred_xgb = xgb_model.predict(X_input)[0]
+    # usar probabilidades/confianza para RF/XGB y margen mínimo para LSTM
+    try:
+        pred_rf_proba = float(rf_model.predict_proba(X_input)[0, 1])
+    except Exception:
+        pred_rf_proba = 1.0 if rf_model.predict(X_input)[0] == 1 else 0.0
+    try:
+        pred_xgb_proba = float(xgb_model.predict_proba(X_input)[0, 1])
+    except Exception:
+        pred_xgb_proba = 1.0 if xgb_model.predict(X_input)[0] == 1 else 0.0
 
     scaled = scaler.transform(cierres[-WINDOW_SIZE:].reshape(-1,1))
     X_lstm = scaled[-LOOKBACK:].reshape(1,LOOKBACK,1)
@@ -222,40 +229,46 @@ def predecir(cierres):
     votos_call = 0
     votos_put = 0
 
-    # LSTM vote
-    lstm_vote = "call" if pred_price > ultimo_precio else "put"
-    model_votes["lstm"] = lstm_vote
-    if lstm_vote == "call":
+    # LSTM vote: exigir margen relativo mínimo para votar (evita votos "neutros")
+    rel_delta = (pred_price - ultimo_precio) / (ultimo_precio + 1e-12)
+    if rel_delta >= LSTM_VOTE_MIN_REL_DELTA:
+        lstm_vote = 'call'
         votos_call += 1
-    else:
+    elif rel_delta <= -LSTM_VOTE_MIN_REL_DELTA:
+        lstm_vote = 'put'
         votos_put += 1
+    else:
+        lstm_vote = None
+    model_votes['lstm'] = lstm_vote
 
-    # Random forest vote
-    rf_vote = "call" if pred_rf == 1 else "put"
-    model_votes["rf"] = rf_vote
-    if rf_vote == "call":
+    # Random forest vote (requiere prob >= MODEL_VOTE_CONFIDENCE_THRESHOLD)
+    if pred_rf_proba >= MODEL_VOTE_CONFIDENCE_THRESHOLD:
+        rf_vote = 'call'
         votos_call += 1
-    else:
+    elif pred_rf_proba <= (1.0 - MODEL_VOTE_CONFIDENCE_THRESHOLD):
+        rf_vote = 'put'
         votos_put += 1
+    else:
+        rf_vote = None
+    model_votes['rf'] = rf_vote
 
-    # XGBoost vote
-    xgb_vote = "call" if pred_xgb == 1 else "put"
-    model_votes["xgb"] = xgb_vote
-    if xgb_vote == "call":
+    # XGBoost vote (igual que RF)
+    if pred_xgb_proba >= MODEL_VOTE_CONFIDENCE_THRESHOLD:
+        xgb_vote = 'call'
         votos_call += 1
-    else:
+    elif pred_xgb_proba <= (1.0 - MODEL_VOTE_CONFIDENCE_THRESHOLD):
+        xgb_vote = 'put'
         votos_put += 1
+    else:
+        xgb_vote = None
+    model_votes['xgb'] = xgb_vote
 
-    # Señal agregada (puede ser None si no hay mayoría)
+    # Señal agregada: exigir al menos 2 votos a favor para abrir operación
     señal = None
-    if votos_call >= 3:
-        señal = "call"
-    elif votos_put >= 3:
-        señal = "put"
-    elif votos_call == 2:
-        señal = "call"
-    elif votos_put == 2:
-        señal = "put"
+    if votos_call >= 2 and votos_call > votos_put:
+        señal = 'call'
+    elif votos_put >= 2 and votos_put > votos_call:
+        señal = 'put'
 
     return señal, votos_call, votos_put, model_votes
 
@@ -502,8 +515,10 @@ def reconcile_open_trades():
             try:
                 mv = json.loads(model_votes) if model_votes and isinstance(model_votes, str) else (model_votes or {})
                 iv = json.loads(ind_votes) if ind_votes and isinstance(ind_votes, str) else (ind_votes or {})
-                outcome = result_label
-                if outcome in ('win','loss'):
+                # result_label es 'win'|'loss' — convertir a outcome 'call'|'put' usando la dirección ejecutada
+                if result_label in ('win','loss'):
+                    trade_dir = t.get('direction')
+                    outcome = trade_dir if result_label == 'win' else ('put' if trade_dir == 'call' else 'call')
                     # intentar inferir régimen actual para la actualización del WM (best-effort)
                     try:
                         velas_r = safe_get_candles(asset, TIMEFRAME, VOLATILITY_LOOKBACK, time.time())

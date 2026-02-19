@@ -13,8 +13,9 @@ class WeightManager:
         self.predictors = list(predictors)
         self.lr = lr
         self.weight_file = weight_file
-        # pesos iniciales (1.0) y bias (global)
-        self.weights = {p: 1.0 for p in self.predictors}
+        # pesos iniciales neutrales (0.0) y bias (global)
+        # Antes: 1.0 favorecía implícitamente 'call' en empates; usar 0.0 para empezar neutral
+        self.weights = {p: 0.0 for p in self.predictors}
         self.bias = 0.0
         # pesos específicos por régimen (aprendizaje online separado)
         self.regime_weights = {}  # e.g. {'trend': {'rf':1.0,...}, 'range': {...}}
@@ -93,11 +94,13 @@ class WeightManager:
             p = 1.0 / (1.0 + math.exp(-s))
         except OverflowError:
             p = 0.0 if s < 0 else 1.0
-        return ("call" if p >= threshold else "put", p)
+        # usar '>' para que p==threshold no favorezca automáticamente 'call'
+        return ("call" if p > threshold else "put", p)
 
     def predict(self, model_votes, indicator_votes, threshold=0.5):
         p = self.predict_proba(model_votes, indicator_votes)
-        return ("call" if p >= threshold else "put", p)
+        # evitar que p==threshold devuelva automáticamente 'call'
+        return ("call" if p > threshold else "put", p)
 
     def predict_with_adjustments(self, model_votes, indicator_votes, weight_multipliers=None, threshold=0.5):
         """Predicción usando multiplicadores temporales de pesos (no persiste cambios).
@@ -115,7 +118,8 @@ class WeightManager:
             p = 1.0 / (1.0 + math.exp(-s))
         except OverflowError:
             p = 0.0 if s < 0 else 1.0
-        return ("call" if p >= threshold else "put", p)
+        # usar comparación estricta para evitar sesgo en empates
+        return ("call" if p > threshold else "put", p)
 
     def update(self, model_votes, indicator_votes, outcome, regime: str = None):
         """Actualización online por gradiente simple (cross-entropy).

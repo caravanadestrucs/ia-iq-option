@@ -65,10 +65,31 @@ def export_csv():
     si = io.StringIO()
     writer = csv.writer(si)
     if trades:
-        writer.writerow(trades[0].keys())
+        # encabezados + columnas de diagnóstico
+        base_headers = list(trades[0].keys())
+        extra_headers = ['models_majority', 'models_match_direction', 'models_call_count', 'models_put_count']
+        writer.writerow(base_headers + extra_headers)
         for t in trades:
-            row = [json.dumps(v) if isinstance(v, (dict, list)) else v for v in t.values()]
-            writer.writerow(row)
+            # parsear model_votes (se guarda como JSON string en la DB)
+            mv_raw = t.get('model_votes')
+            try:
+                mv = json.loads(mv_raw) if mv_raw and isinstance(mv_raw, str) else (mv_raw or {})
+            except Exception:
+                mv = {}
+            # contar votos de modelos (esperamos llaves como 'lstm','rf','xgb')
+            call_cnt = sum(1 for v in mv.values() if v == 'call')
+            put_cnt = sum(1 for v in mv.values() if v == 'put')
+            majority = None
+            if call_cnt > put_cnt:
+                majority = 'call'
+            elif put_cnt > call_cnt:
+                majority = 'put'
+            # comparar con la dirección registrada
+            dir_registered = t.get('direction')
+            match = (majority is not None and dir_registered == majority)
+            # construir fila original + diagnósticos
+            base_row = [json.dumps(v) if isinstance(v, (dict, list)) else v for v in t.values()]
+            writer.writerow(base_row + [majority, match, call_cnt, put_cnt])
     return Response(si.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=trades_export.csv'})
 
