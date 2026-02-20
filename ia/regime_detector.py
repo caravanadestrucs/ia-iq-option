@@ -5,7 +5,7 @@ from typing import List, Dict
 import pandas as pd
 import numpy as np
 
-from configuraciones.config import ADX_TREND_THRESHOLD, ADX_RANGE_THRESHOLD, EMA_SLOPE_THRESHOLD, ATR_VOL_THRESHOLD
+from configuraciones.config import ADX_TREND_THRESHOLD, ADX_RANGE_THRESHOLD, EMA_SLOPE_THRESHOLD, ATR_VOL_THRESHOLD, REGIME_ADX_STRONG, REGIME_ADX_WEAK, REGIME_ATR_LOW, REGIME_ATR_HIGH
 
 
 def _ensure_cols(df: pd.DataFrame) -> pd.DataFrame:
