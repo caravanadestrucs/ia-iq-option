@@ -75,19 +75,35 @@ def detect_regime(candles: List[Dict], adx_period: int = 14) -> Dict:
     body_ratio = (body / rng).rolling(window=adx_period, min_periods=1).mean().iloc[-1]
     body_ratio = float(np.nan_to_num(body_ratio))
 
-    # reglas simples para etiquetar régimen
+    # reglas mejoradas para etiquetar régimen (más granular)
+    # Prioridad: low-vol, high-vol, strong-trend, weak-trend, lateral (range), mixed
     regime = 'mixed'
-    if adx_last >= ADX_TREND_THRESHOLD and abs(ema_slope) >= EMA_SLOPE_THRESHOLD:
-        regime = 'trend'
-    elif adx_last < ADX_RANGE_THRESHOLD and body_ratio < 0.6:
-        regime = 'range'
-    elif atr_pct >= ATR_VOL_THRESHOLD:
-        regime = 'volatile'
-    elif abs(ema_slope) < EMA_SLOPE_THRESHOLD and adx_last < ADX_RANGE_THRESHOLD:
-        regime = 'flat'
+
+    # baja/alta volatilidad (por ATR %)
+    if atr_pct <= REGIME_ATR_LOW:
+        regime = 'low_volatility'
+    elif atr_pct >= REGIME_ATR_HIGH:
+        regime = 'high_volatility'
+    else:
+        # tendencia fuerte / débil según ADX + pendiente EMA
+        if adx_last >= REGIME_ADX_STRONG and abs(ema_slope) >= EMA_SLOPE_THRESHOLD:
+            regime = 'strong_trend'
+        elif adx_last >= REGIME_ADX_WEAK and abs(ema_slope) >= (EMA_SLOPE_THRESHOLD * 0.5):
+            regime = 'weak_trend'
+        # lateral / rango
+        elif adx_last < ADX_RANGE_THRESHOLD and body_ratio < 0.6:
+            regime = 'lateral'
+        elif abs(ema_slope) < EMA_SLOPE_THRESHOLD and adx_last < ADX_RANGE_THRESHOLD:
+            regime = 'lateral'
+        else:
+            regime = 'mixed'
+
+    # dirección de tendencia (útil para aplicar reglas de 'seguir tendencia')
+    trend_dir = 'up' if ema_slope > 0 else ('down' if ema_slope < 0 else 'flat')
 
     return {
         'regime': regime,
+        'trend_dir': trend_dir,
         'adx': round(adx_last, 3),
         'ema_slope': round(float(ema_slope), 6),
         'atr_pct': round(float(atr_pct), 6),

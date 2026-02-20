@@ -605,8 +605,14 @@ while True:
             # detectar régimen y ajustar tamaño/pesos
             regime_info = detect_regime(velas)
             regime = regime_info.get('regime')
+            trend_dir = regime_info.get('trend_dir')  # 'up'|'down'|'flat'
+
             asset_winrate = trade_logger.get_winrate(asset=ASSET, lookback=WINRATE_LOOKBACK, include_draws=True)
             bet_size = compute_bet_size(asset_winrate, regime=regime)
+
+            # aplicar reducción de tamaño en alta volatilidad si procede
+            if regime == 'high_volatility':
+                bet_size = max(MIN_BET, round(bet_size * (1.0 - REGIME_HIGH_VOL_SIZE_REDUCTION), 2))
 
             # predecir con ajustes de pesos según régimen (temporal) o usando pesos aprendidos por régimen
             multipliers = REGIME_WEIGHT_MULTIPLIERS.get(regime)
@@ -616,6 +622,47 @@ while True:
                 wm_pred, wm_conf = weight_manager.predict_regime(model_votes, ind_votes, regime=regime)
             else:
                 wm_pred, wm_conf = weight_manager.predict(model_votes, ind_votes)
+
+            # calcular dirección agregada de indicadores (disponible para reglas de 'lateral')
+            indicator_direction = None
+            if ind_counts.get('call', 0) > ind_counts.get('put', 0):
+                indicator_direction = 'call'
+            elif ind_counts.get('put', 0) > ind_counts.get('call', 0):
+                indicator_direction = 'put'
+
+            # Reglas por régimen (filtrado conservador para mejorar calidad)
+            if regime == 'low_volatility' and REGIME_LOW_VOL_SKIP:
+                print(f"{ASSET} -> SKIP (low_volatility)")
+                time.sleep(1)
+                continue
+
+            # si 'strong_trend' solo seguir la dirección de la tendencia
+            if regime == 'strong_trend' and señal is not None:
+                required = 'call' if trend_dir == 'up' else 'put' if trend_dir == 'down' else None
+                if required and señal != required:
+                    print(f"{ASSET} -> SKIP (strong_trend) — señal no sigue tendencia {required}")
+                    time.sleep(1)
+                    continue
+
+            # en 'weak_trend' exigir mayor confirmación (seguir tendencia con más pruebas)
+            if regime == 'weak_trend' and señal is not None:
+                required = 'call' if trend_dir == 'up' else 'put' if trend_dir == 'down' else None
+                if not required or señal != required or wm_conf < WM_HALF_CONFIDENCE_THRESHOLD or (votos_call + votos_put) < 2:
+                    print(f"{ASSET} -> SKIP (weak_trend) — requiere mayor confirmación")
+                    time.sleep(1)
+                    continue
+
+            # en 'lateral' priorizar contratendencia / mean-reversion (exigir indicadores)
+            if regime == 'lateral':
+                if indicator_direction is None:
+                    print(f"{ASSET} -> SKIP (lateral) — sin señal contraria de indicadores")
+                    time.sleep(1)
+                    continue
+                # permitir solo operaciones que vayan en la dirección indicada por indicadores (contrarian)
+                if señal is None or señal != indicator_direction:
+                    print(f"{ASSET} -> SKIP (lateral) — sólo contratendencia con indicadores")
+                    time.sleep(1)
+                    continue
 
             print(f"{ASSET} -> Señal: {señal} | modelos: call={votos_call} put={votos_put} | indicadores: {ind_votes} | wm={wm_conf:.2f} | regime={regime} | winrate={asset_winrate} | bet={bet_size}")
 

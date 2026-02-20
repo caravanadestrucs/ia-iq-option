@@ -2,9 +2,16 @@ from configuraciones.config import VOLATILITY_SIZE_REDUCTION, MIN_BET, MONTO, RI
 
 # Multiplicadores por régimen (ajustables)
 REGIME_WEIGHT_MULTIPLIERS = {
+    # original keys preserved for backward-compat
     'trend': {'lstm': 1.8, 'rf': 1.2, 'xgb': 1.2},
     'range': {'rsi': 1.6, 'stochastic': 1.6, 'macd': 1.2},
-    'volatile': {'all': 0.7}
+    'volatile': {'all': 0.7},
+    # new granular regimes map to sensible defaults
+    'strong_trend': {'lstm': 2.0, 'rf': 1.3, 'xgb': 1.3},
+    'weak_trend': {'lstm': 1.2, 'rf': 1.0, 'xgb': 1.0},
+    'lateral': {'rsi': 1.6, 'stochastic': 1.6},
+    'high_volatility': {'all': 0.7},
+    'low_volatility': {'all': 0.5}
 }
 
 

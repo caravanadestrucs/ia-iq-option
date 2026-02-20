@@ -67,6 +67,17 @@ ADX_RANGE_THRESHOLD = 20
 EMA_SLOPE_THRESHOLD = 0.0005    # pendiente relativa de EMA200 para considerar 'inclinada'
 ATR_VOL_THRESHOLD = 0.002       # ATR% sobre precio para considerar 'volatility'
 
+# Regime classifier thresholds (más granular)
+REGIME_ADX_STRONG = float(os.environ.get('REGIME_ADX_STRONG', 35))     # ADX >= -> strong trend
+REGIME_ADX_WEAK = float(os.environ.get('REGIME_ADX_WEAK', ADX_TREND_THRESHOLD))  # ADX >= -> weak trend
+REGIME_ATR_LOW = float(os.environ.get('REGIME_ATR_LOW', 0.0006))      # ATR% <= -> low volatility
+REGIME_ATR_HIGH = float(os.environ.get('REGIME_ATR_HIGH', ATR_VOL_THRESHOLD))    # ATR% >= -> high volatility
+
+# Acción por defecto para baja volatilidad (si True, no operar — puedes cambiar a False)
+REGIME_LOW_VOL_SKIP = bool(int(os.environ.get('REGIME_LOW_VOL_SKIP', '1')))
+# Reducción de tamaño en alta volatilidad (usa VOLATILITY_SIZE_REDUCTION por defecto)
+REGIME_HIGH_VOL_SIZE_REDUCTION = float(os.environ.get('REGIME_HIGH_VOL_SIZE_REDUCTION', VOLATILITY_SIZE_REDUCTION))
+
 # Trend veto minimum weight (aplica veto solo si WeightManager asigna al 'trend' >= este valor)
 # P.ej. 0.0 -> cualquier peso positivo activa el veto; 0.1 exige peso moderado.
 TREND_VETO_MIN_WEIGHT = 0.9  # aumentado para reducir vetos de trend y abrir un poco más de operaciones
