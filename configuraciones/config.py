@@ -9,6 +9,8 @@ ASSETS_OTC = ["EURUSD-OTC", "GBPUSD-OTC", "USDJPY-OTC", "AUDUSD-OTC", "EURJPY-OT
 INCLUDE_OTC = True
 
 TIMEFRAME = 900      # 5 minutos
+# horizonte usado por los modelos de largo plazo (3 velas de 5m = 15 minutos)
+HORIZON_CANDLES = 3
 EXPIRATION = 5       # expiración en minutos
 MONTO = float(os.environ.get('MONTO', 20))
 

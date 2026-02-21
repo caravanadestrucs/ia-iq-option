@@ -100,9 +100,17 @@ print("Bot Optimizado 15M iniciado")
 # MODELOS
 # =============================
 
+# horizonte de predicción a largo plazo (velas de TIMEFRAME); configurado en config
+from configuraciones.config import HORIZON_CANDLES
+
 scaler = MinMaxScaler()
+# modelos para horizonte inmediato
 rf_model = RandomForestClassifier(n_estimators=100, max_depth=5, class_weight='balanced', random_state=42)
 xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', max_depth=3)
+
+# modelos para horizonte 15‑min
+rf_model_h15 = RandomForestClassifier(n_estimators=100, max_depth=5, class_weight='balanced', random_state=43)
+xgb_model_h15 = XGBClassifier(use_label_encoder=False, eval_metric='logloss', max_depth=3)
 
 def crear_lstm():
     model = Sequential()
@@ -113,6 +121,8 @@ def crear_lstm():
     return model
 
 lstm_model = crear_lstm()
+# LSTM independiente para 15‑min
+lstm_model_h15 = crear_lstm()
 
 last_retrain_time = None
 
@@ -138,7 +148,8 @@ def load_indicator_modules():
 indicator_modules = load_indicator_modules()
 
 # instanciar gestor de pesos (IA ligera)
-wm_predictors = ["rf", "xgb", "lstm"] + [m.__name__.split('.')[-1] for m in indicator_modules]
+# ahora hay cuatro 'modelos' principales: rf, xgb, lstm y el voto a 15min (h15)
+wm_predictors = ["rf", "xgb", "lstm", "h15"] + [m.__name__.split('.')[-1] for m in indicator_modules]
 weight_manager = WeightManager(wm_predictors, lr=WEIGHT_LR)
 
 # inicializar logger SQLite
@@ -166,11 +177,40 @@ def preparar_datos(cierres):
     X_lstm = []
     y_lstm = []
 
+    # ahora también generamos etiquetas a HORIZON_CANDLES velas de distancia (15min)
+    y_ml_h15 = []
+    X_lstm_h15 = []
+    y_lstm_h15 = []
+
+    # para ML los features son idénticos; sólo cambia la etiqueta
+    for i in range(len(X_ml)):
+        # i corresponde a la fila del DataFrame original de df tras dropna
+        # la etiqueta inmediatamente siguiente está en y_ml; la de 15min la calculamos manualmente
+        # df está indexado de forma continua tras dropna, podemos obtenerla usando iloc
+        target_idx = i + 1 + (HORIZON_CANDLES - 1)
+        if target_idx < len(df):
+            # comparación simple de cierres
+            close_now = df.iloc[i]["close"]
+            close_h15 = df.iloc[target_idx]["close"]
+            y_ml_h15.append(1 if (close_h15 - close_now) > 0 else 0)
+        else:
+            y_ml_h15.append(y_ml[i])  # rellenar con etiqueta inmediata para mantener longitud
+
     for i in range(LOOKBACK, len(scaled)-1):
         X_lstm.append(scaled[i-LOOKBACK:i])
         y_lstm.append(scaled[i+1])
+        if i + HORIZON_CANDLES < len(scaled):
+            X_lstm_h15.append(scaled[i-LOOKBACK:i])
+            # para horizonte 15m usamos el valor escalado a HORIZON_CANDLES pasos
+            y_lstm_h15.append(scaled[i+HORIZON_CANDLES])
+        else:
+            # rellenar con valor inmediato para conservar forma
+            X_lstm_h15.append(scaled[i-LOOKBACK:i])
+            y_lstm_h15.append(scaled[i+1])
 
-    return np.array(X_lstm), np.array(y_lstm), X_ml, y_ml
+    return (np.array(X_lstm), np.array(y_lstm),
+            np.array(X_lstm_h15), np.array(y_lstm_h15),
+            X_ml, y_ml, np.array(y_ml_h15))
 
 def entrenar_si_necesario(cierres):
     global last_retrain_time
@@ -182,17 +222,30 @@ def entrenar_si_necesario(cierres):
 
         print("Reentrenando modelos...")
 
-        X_lstm, y_lstm, X_ml, y_ml = preparar_datos(cierres)
+        # obtener también datos para horizonte 15m
+        X_lstm, y_lstm, X_lstm_h15, y_lstm_h15, X_ml, y_ml, y_ml_h15 = preparar_datos(cierres)
 
         if len(X_ml) > 100:
             rf_model.fit(X_ml, y_ml)
             xgb_model.fit(X_ml, y_ml)
+            # entrenar modelos 15m con misma entrada X_ml
+            rf_model_h15.fit(X_ml, y_ml_h15)
+            xgb_model_h15.fit(X_ml, y_ml_h15)
 
         if len(X_lstm) > 100:
             early_stop = EarlyStopping(monitor='loss', patience=2)
             lstm_model.fit(
                 X_lstm,
                 y_lstm,
+                epochs=3,
+                batch_size=32,
+                verbose=0,
+                callbacks=[early_stop]
+            )
+            # también entrenar LSTM 15m
+            lstm_model_h15.fit(
+                X_lstm_h15,
+                y_lstm_h15,
                 epochs=3,
                 batch_size=32,
                 verbose=0,
@@ -205,12 +258,15 @@ def entrenar_si_necesario(cierres):
         print("No es momento de reentrenar")
 
 def predecir(cierres):
+    # se evalúan cuatro «IA»: rf, xgb, lstm (inmediato) y un predictor de 15min
+    # la operación sólo se abre si al menos tres modelos coinciden y el voto de
+    # horizonte 15min (h15) no contradice la dirección final.
     ultimo_precio = cierres[-1]
 
     retorno = (cierres[-1] - cierres[-2]) / cierres[-2]
     X_input = np.array([[retorno]])
 
-    # usar probabilidades/confianza para RF/XGB y margen mínimo para LSTM
+    # probabilidades para RF/XGB inmediato
     try:
         pred_rf_proba = float(rf_model.predict_proba(X_input)[0, 1])
     except Exception:
@@ -220,16 +276,29 @@ def predecir(cierres):
     except Exception:
         pred_xgb_proba = 1.0 if xgb_model.predict(X_input)[0] == 1 else 0.0
 
+    # probabilidades para RF/XGB 15m
+    try:
+        pred_rf_proba_h15 = float(rf_model_h15.predict_proba(X_input)[0, 1])
+    except Exception:
+        pred_rf_proba_h15 = 1.0 if rf_model_h15.predict(X_input)[0] == 1 else 0.0
+    try:
+        pred_xgb_proba_h15 = float(xgb_model_h15.predict_proba(X_input)[0, 1])
+    except Exception:
+        pred_xgb_proba_h15 = 1.0 if xgb_model_h15.predict(X_input)[0] == 1 else 0.0
+
     scaled = scaler.transform(cierres[-WINDOW_SIZE:].reshape(-1,1))
     X_lstm = scaled[-LOOKBACK:].reshape(1,LOOKBACK,1)
     pred_lstm = lstm_model.predict(X_lstm, verbose=0)
     pred_price = scaler.inverse_transform(pred_lstm)[0][0]
 
+    pred_lstm_h15 = lstm_model_h15.predict(X_lstm, verbose=0)
+    pred_price_h15 = scaler.inverse_transform(pred_lstm_h15)[0][0]
+
     model_votes = {}
     votos_call = 0
     votos_put = 0
 
-    # LSTM vote: exigir margen relativo mínimo para votar (evita votos "neutros")
+    # LSTM inmediato
     rel_delta = (pred_price - ultimo_precio) / (ultimo_precio + 1e-12)
     if rel_delta >= LSTM_VOTE_MIN_REL_DELTA:
         lstm_vote = 'call'
@@ -241,7 +310,7 @@ def predecir(cierres):
         lstm_vote = None
     model_votes['lstm'] = lstm_vote
 
-    # Random forest vote (requiere prob >= MODEL_VOTE_CONFIDENCE_THRESHOLD)
+    # RF
     if pred_rf_proba >= MODEL_VOTE_CONFIDENCE_THRESHOLD:
         rf_vote = 'call'
         votos_call += 1
@@ -252,7 +321,7 @@ def predecir(cierres):
         rf_vote = None
     model_votes['rf'] = rf_vote
 
-    # XGBoost vote (igual que RF)
+    # XGB
     if pred_xgb_proba >= MODEL_VOTE_CONFIDENCE_THRESHOLD:
         xgb_vote = 'call'
         votos_call += 1
@@ -263,12 +332,50 @@ def predecir(cierres):
         xgb_vote = None
     model_votes['xgb'] = xgb_vote
 
-    # Señal agregada: exigir al menos 2 votos a favor para abrir operación
+    # --- 15min horizon vote ------------------------------------------------
+    model_votes['h15'] = None
+    # LSTM-15
+    rel_delta_h15 = (pred_price_h15 - ultimo_precio) / (ultimo_precio + 1e-12)
+    if rel_delta_h15 >= LSTM_VOTE_MIN_REL_DELTA:
+        vote_h15 = 'call'
+        votos_call += 1
+    elif rel_delta_h15 <= -LSTM_VOTE_MIN_REL_DELTA:
+        vote_h15 = 'put'
+        votos_put += 1
+    else:
+        vote_h15 = None
+    model_votes['h15'] = vote_h15
+
+    # RF-15
+    if pred_rf_proba_h15 >= MODEL_VOTE_CONFIDENCE_THRESHOLD:
+        if model_votes['h15'] is None:
+            model_votes['h15'] = 'call'
+        votos_call += 1
+    elif pred_rf_proba_h15 <= (1.0 - MODEL_VOTE_CONFIDENCE_THRESHOLD):
+        if model_votes['h15'] is None:
+            model_votes['h15'] = 'put'
+        votos_put += 1
+
+    # XGB-15
+    if pred_xgb_proba_h15 >= MODEL_VOTE_CONFIDENCE_THRESHOLD:
+        if model_votes['h15'] is None:
+            model_votes['h15'] = 'call'
+        votos_call += 1
+    elif pred_xgb_proba_h15 <= (1.0 - MODEL_VOTE_CONFIDENCE_THRESHOLD):
+        if model_votes['h15'] is None:
+            model_votes['h15'] = 'put'
+        votos_put += 1
+
+    # Señal agregada: exigir al menos 3 votos a favor y que el voto de horizonte coincida si existe
     señal = None
-    if votos_call >= 2 and votos_call > votos_put:
+    if votos_call >= 3 and votos_call > votos_put:
         señal = 'call'
-    elif votos_put >= 2 and votos_put > votos_call:
+    elif votos_put >= 3 and votos_put > votos_call:
         señal = 'put'
+
+    # si hay voto de horizon 15 y difiere, invalida la señal
+    if señal and model_votes.get('h15') and model_votes.get('h15') != señal:
+        señal = None
 
     return señal, votos_call, votos_put, model_votes
 
@@ -289,6 +396,13 @@ def get_indicator_votes(cierres, modules):
 
 def safe_get_candles(asset, timeframe, size, to_ts):
     try:
+        # comprobar que el asset está registrado por la API antes de solicitar velas
+        abiertos = iq.get_all_open_time() or {}
+        abiertos_bin = abiertos.get('binary', {}) if isinstance(abiertos, dict) else {}
+        if asset not in abiertos_bin:
+            logging.warning("Asset %s no registrado por la API — omitiendo solicitud de velas", asset)
+            return None
+
         velas = iq.get_candles(asset, timeframe, size, to_ts)
         if not velas:
             return None
