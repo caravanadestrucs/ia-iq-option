@@ -101,7 +101,7 @@ print("Bot Optimizado 15M iniciado")
 # =============================
 
 # horizonte de predicción a largo plazo (velas de TIMEFRAME); configurado en config
-from configuraciones.config import HORIZON_CANDLES
+# la constante HORIZON_CANDLES ya se importa mediante `from configuraciones.config import *` más arriba
 
 scaler = MinMaxScaler()
 # modelos para horizonte inmediato
