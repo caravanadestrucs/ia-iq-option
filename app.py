@@ -83,16 +83,44 @@ _stable_api.IQ_Option.get_digital_underlying_list_data = _safe_get_digital_under
 
 # Instanciar y conectar (ahora con parche aplicado)
 q_obj = IQ_Option(EMAIL, PASSWORD)
-q_obj.connect()
+
+# wrapper defensiva para la llamada connect de la librería
+def safe_connect(api_obj, max_attempts=3, delay=5):
+    """Intenta conectar varias veces, capturando JSONDecodeError y otros errores.
+    Devuelve True si la conexión terminó satisfactoriamente.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            ok = api_obj.connect()
+            # la API devuelve True/False; también chequea estado interno
+            if ok or api_obj.check_connect():
+                return True
+        except Exception as e:
+            # capturar decodificación JSON y timeout, registro y reintento
+            import json as _json
+            if isinstance(e, _json.JSONDecodeError):
+                logging.error("JSONDecodeError durante connect: %s", e)
+            else:
+                logging.error("Excepción in connect intento %d: %s", attempt, e)
+        time.sleep(delay)
+    return False
+
+if not safe_connect(q_obj):
+    print("Error conexión tras varios intentos")
+    exit()
 
 # reasignar nombre 'iq' usado en el resto del script
 iq = q_obj
 
 if not iq.check_connect():
-    print("Error conexión")
+    print("Error conexión final")
     exit()
 
-iq.change_balance("PRACTICE")
+# intentar cambiar balance en demo, ignorar fallos
+try:
+    iq.change_balance("PRACTICE")
+except Exception as _:
+    pass
 
 print("Bot Optimizado 15M iniciado")
 
