@@ -12,6 +12,8 @@ logging.basicConfig(level=logging.ERROR)        # nivel por defecto = ERROR
 # ajustar logs de librerías conocidas por ser ruidosas
 for _n in ('tensorflow', 'urllib3', 'matplotlib', 'numba', 'sklearn', 'xgboost', 'keras', 'h5py', 'iqoptionapi'):
     logging.getLogger(_n).setLevel(logging.ERROR)
+# websockets de iqoptionapi a warning para no inundar con timeouts
+logging.getLogger('iqoptionapi.ws.client').setLevel(logging.WARNING)
 
 # FILTRO ADICIONAL: suprime mensajes que contienen '**warning**' o patrones repetidos por iqoptionapi
 class _HideIQWarnings(logging.Filter):
@@ -81,33 +83,63 @@ def _safe_get_digital_underlying_list_data(self, *a, **k):
 
 _stable_api.IQ_Option.get_digital_underlying_list_data = _safe_get_digital_underlying_list_data
 
+# "Monkeypatch" adicional: interceptar errores JSON que van al conectar
+import iqoptionapi.stable_api as _stable_api
+_orig_connect = getattr(_stable_api.IQ_Option, 'connect', None)
+def _safe_api_connect(self, *args, **kwargs):
+    try:
+        if _orig_connect:
+            return _orig_connect(self, *args, **kwargs)
+        return False
+    except Exception as e:
+        import json as _json
+        if isinstance(e, _json.JSONDecodeError):
+            logging.error("iqoptionapi.connect returned invalid JSON: %s", e)
+            return False
+        raise
+_stable_api.IQ_Option.connect = _safe_api_connect
+
 # Instanciar y conectar (ahora con parche aplicado)
 q_obj = IQ_Option(EMAIL, PASSWORD)
 
 # wrapper defensiva para la llamada connect de la librería
-def safe_connect(api_obj, max_attempts=3, delay=5):
-    """Intenta conectar varias veces, capturando JSONDecodeError y otros errores.
+def safe_connect(api_obj):
+    """Intenta conectar, capturando JSONDecodeError y otros errores.
     Devuelve True si la conexión terminó satisfactoriamente.
+
+    No tiene límite de intentos: quien llama decide cuándo parar.
     """
-    for attempt in range(1, max_attempts + 1):
-        try:
-            ok = api_obj.connect()
-            # la API devuelve True/False; también chequea estado interno
-            if ok or api_obj.check_connect():
-                return True
-        except Exception as e:
-            # capturar decodificación JSON y timeout, registro y reintento
-            import json as _json
-            if isinstance(e, _json.JSONDecodeError):
-                logging.error("JSONDecodeError durante connect: %s", e)
-            else:
-                logging.error("Excepción in connect intento %d: %s", attempt, e)
-        time.sleep(delay)
+    try:
+        ok = api_obj.connect()
+        if ok or api_obj.check_connect():
+            return True
+    except Exception as e:
+        import json as _json
+        if isinstance(e, _json.JSONDecodeError):
+            logging.error("JSONDecodeError durante connect: %s", e)
+        else:
+            logging.error("Excepción en connect: %s", e)
     return False
 
-if not safe_connect(q_obj):
-    print("Error conexión tras varios intentos")
+# ciclo de inicio: seguir intentando hasta que haya conexión estable
+while True:
+    if safe_connect(q_obj):
+        break
+    print("No se pudo conectar, reintentando en 60 s...")
+    time.sleep(60)
+
+# reasignar nombre 'iq' usado en el resto del script
+iq = q_obj
+
+if not iq.check_connect():
+    print("Error conexión final")
     exit()
+
+# intentar cambiar balance en demo, ignorar fallos
+try:
+    iq.change_balance("PRACTICE")
+except Exception as _:
+    pass
 
 # reasignar nombre 'iq' usado en el resto del script
 iq = q_obj
