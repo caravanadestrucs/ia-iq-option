@@ -100,14 +100,24 @@ def _safe_api_connect(self, *args, **kwargs):
 _stable_api.IQ_Option.connect = _safe_api_connect
 
 # Instanciar y conectar (ahora con parche aplicado)
+# Verificación de red previa: hacemos una solicitud HTTP simple para comprobar
+# que el VPS puede resolver y alcanzar el endpoint de IQOption.
+import requests
+try:
+    r = requests.get("https://api.iqoption.com", timeout=5)
+    if r.status_code >= 400:
+        print(f"Advertencia: HTTP {r.status_code} desde api.iqoption.com")
+except Exception as e:
+    print("No se puede alcanzar api.iqoption.com desde este host:", e)
+    print("Revisa la red/Firewall del VPS o configura un proxy/VPN antes de continuar.")
+    sys.exit(1)
+
 q_obj = IQ_Option(EMAIL, PASSWORD)
 
 # wrapper defensiva para la llamada connect de la librería
 def safe_connect(api_obj):
     """Intenta conectar, capturando JSONDecodeError y otros errores.
     Devuelve True si la conexión terminó satisfactoriamente.
-
-    No tiene límite de intentos: quien llama decide cuándo parar.
     """
     try:
         ok = api_obj.connect()
@@ -121,24 +131,28 @@ def safe_connect(api_obj):
             logging.error("Excepción en connect: %s", e)
     return False
 
-# ciclo de inicio: seguir intentando hasta que haya conexión estable
-while True:
+# ciclo de inicio: intentar varias veces antes de abandonar
+max_initial_attempts = 5
+attempt = 0
+while attempt < max_initial_attempts:
     if safe_connect(q_obj):
         break
-    print("No se pudo conectar, reintentando en 60 s...")
+    attempt += 1
+    print(f"No se pudo conectar (intento {attempt}/{max_initial_attempts}), reintentando en 60 s...")
     time.sleep(60)
+
+if not q_obj.check_connect():
+    print("Error: no se pudo establecer conexión tras varios intentos.")
+    print("Si estás detrás de un firewall o tu VPS bloquea el tráfico saliente, considera usar un proxy o VPN.")
+    sys.exit(1)
 
 # reasignar nombre 'iq' usado en el resto del script
 iq = q_obj
 
-if not iq.check_connect():
-    print("Error conexión final")
-    exit()
-
 # intentar cambiar balance en demo, ignorar fallos
 try:
     iq.change_balance("PRACTICE")
-except Exception as _:
+except Exception:
     pass
 
 # reasignar nombre 'iq' usado en el resto del script
