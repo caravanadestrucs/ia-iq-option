@@ -7,7 +7,8 @@ WORKDIR /app
 # dependencias del sistema necesarias para algunos wheels (xgboost, etc.)
 # añadimos `git` para permitir operaciones git dentro del contenedor si es necesario
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc g++ libgomp1 git && rm -rf /var/lib/apt/lists/*
+    build-essential gcc g++ libgomp1 git \
+    curl iputils-ping netcat && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
