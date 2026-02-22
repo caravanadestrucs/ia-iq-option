@@ -9,10 +9,8 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential gcc g++ libgomp1 git \
-        curl iputils-ping netcat \
     || (apt-get update && apt-get install -y --no-install-recommends \
-        build-essential gcc g++ libgomp1 git \
-        curl iputils-ping netcat) && \
+        build-essential gcc g++ libgomp1 git) && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
